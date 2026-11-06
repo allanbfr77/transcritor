@@ -9,6 +9,8 @@ export interface Segment {
   start: number;
   end: number;
   text: string;
+  /** texto original, quando o trecho foi traduzido */
+  original?: string;
   words?: Word[];
 }
 

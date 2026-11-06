@@ -72,6 +72,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
   const [showTs, setShowTs] = useState(true);
   const [paragraphs, setParagraphs] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [showOriginal, setShowOriginal] = useState(false);
   const [query, setQuery] = useState("");
   const [matchIdx, setMatchIdx] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
@@ -84,6 +85,9 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
     setAutoScroll(load("autoscroll", true));
   }, []);
 
+  const hasOriginal = useMemo(() => segs.some((s) => !!s.original), [segs]);
+  const disp = useCallback((s: Segment) => (showOriginal && s.original ? s.original : s.text), [showOriginal]);
+
   const active = useMemo(() => findActive(segs, time), [segs, time]);
   const activeId = active >= 0 ? segs[active].id : null;
 
@@ -93,7 +97,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
     if (!q) return [];
     const out: Match[] = [];
     segs.forEach((s, i) => {
-      const lower = s.text.toLowerCase();
+      const lower = disp(s).toLowerCase();
       let p = 0;
       for (;;) {
         const f = lower.indexOf(q, p);
@@ -103,7 +107,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
       }
     });
     return out;
-  }, [segs, query]);
+  }, [segs, query, disp]);
   const cur = matches.length ? Math.min(matchIdx, matches.length - 1) : -1;
 
   const scrollToSeg = useCallback((id: string, block: ScrollLogicalPosition = "nearest") => {
@@ -172,24 +176,24 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
   };
 
   const highlight = (s: Segment, i: number) => {
-    if (!query.trim()) return s.text;
+    if (!query.trim()) return disp(s);
     const mine = matches.map((m, k) => ({ ...m, k })).filter((m) => m.seg === i);
-    if (!mine.length) return s.text;
+    if (!mine.length) return disp(s);
     const parts: React.ReactNode[] = [];
     let p = 0;
     mine.forEach((m) => {
-      parts.push(s.text.slice(p, m.from));
+      parts.push(disp(s).slice(p, m.from));
       parts.push(
         <mark
           key={m.k}
           className={cn("rounded-[3px] px-0.5 text-fg", m.k === cur ? "bg-accent text-on-accent" : "bg-warning-soft ring-1 ring-warning/40")}
         >
-          {s.text.slice(m.from, m.to)}
+          {disp(s).slice(m.from, m.to)}
         </mark>,
       );
       p = m.to;
     });
-    parts.push(s.text.slice(p));
+    parts.push(disp(s).slice(p));
     return parts;
   };
 
@@ -275,6 +279,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
                     save("paragraphs", v);
                   }}
                 />
+                {hasOriginal && <SwitchRow label="Mostrar texto original" checked={showOriginal} onChange={setShowOriginal} />}
                 <SwitchRow
                   label="Rolar acompanhando o vídeo"
                   checked={autoScroll}
@@ -405,7 +410,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
                         onCancel={() => setEditing(null)}
                       />
                     ) : (
-                      <p className={cn(textClass, "min-w-0 flex-1")} onDoubleClick={() => setEditing(s.id)}>
+                      <p className={cn(textClass, "min-w-0 flex-1")} onDoubleClick={() => !showOriginal && setEditing(s.id)}>
                         {highlight(s, i)}
                       </p>
                     )}
@@ -416,11 +421,12 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
                           className="size-7"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void copy(showTs ? `[${formatClock(s.start)}] ${s.text}` : s.text, "Trecho copiado");
+                            void copy(showTs ? `[${formatClock(s.start)}] ${disp(s)}` : disp(s), "Trecho copiado");
                           }}
                         >
                           <Copy size={14} strokeWidth={1.75} />
                         </IconButton>
+                        {!showOriginal && (
                         <IconButton
                           label="Editar trecho"
                           className="size-7"
@@ -431,6 +437,7 @@ export function TranscriptView({ transcript, media, playerRef, onSegments, onRea
                         >
                           <Pencil size={14} strokeWidth={1.75} />
                         </IconButton>
+                        )}
                       </div>
                     )}
                   </div>

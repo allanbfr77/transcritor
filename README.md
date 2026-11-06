@@ -6,7 +6,7 @@ Transcreve vídeos com precisão e traz um assistente embutido para trabalhar o 
 - Extração de áudio no navegador com ffmpeg.wasm
 - Dois motores: **Local** (Whisper no navegador, privado) e **Groq** (Whisper na nuvem, rápido)
 - Entradas: arquivo, Google Drive, YouTube (legendas) e um **Extrator de áudio** independente
-- Assistente (Groq `llama-3.3-70b-versatile` ou Google Gemini free tier), com chave só no servidor
+- Assistente (Groq `openai/gpt-oss-120b` ou Google Gemini free tier), com chave só no servidor
 - Histórico no navegador (IndexedDB), sem login
 
 ## Instalação e execução

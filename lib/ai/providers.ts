@@ -45,21 +45,36 @@ async function* sseLines(res: Response): AsyncGenerator<string> {
   }
 }
 
+const GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
+
 async function* groqStream(system: string, messages: ChatMessage[], signal: AbortSignal) {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    signal,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({
-      model: process.env.GROQ_CHAT_MODEL || "llama-3.3-70b-versatile",
+  // Tenta o modelo configurado e, se ele não existir mais, os modelos de reserva.
+  const models = [process.env.GROQ_CHAT_MODEL, ...GROQ_MODELS].filter((m, i, a): m is string => !!m && a.indexOf(m) === i);
+  let res: Response | null = null;
+  let lastErr: ProviderError | null = null;
+  for (const model of models) {
+    const body: Record<string, unknown> = {
+      model,
       stream: true,
       temperature: 0.3,
       messages: [{ role: "system", content: system }, ...messages],
-    }),
-  });
-  if (!res.ok) {
-    throw new ProviderError(friendly(res.status, await res.text().catch(() => "")), res.status, Number(res.headers.get("retry-after")) || undefined);
+    };
+    if (model.startsWith("openai/gpt-oss")) body.reasoning_effort = "low";
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      res = r;
+      break;
+    }
+    const text = await r.text().catch(() => "");
+    lastErr = new ProviderError(friendly(r.status, text), r.status, Number(r.headers.get("retry-after")) || undefined);
+    if (r.status !== 404 && !(r.status === 400 && /model/i.test(text))) throw lastErr;
   }
+  if (!res) throw lastErr ?? new ProviderError("Nenhum modelo da Groq disponível.", 502);
   for await (const data of sseLines(res)) {
     if (data === "[DONE]") return;
     try {

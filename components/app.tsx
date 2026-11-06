@@ -8,6 +8,7 @@ import { cleanupStaleTemp } from "@/lib/audio/opfs";
 import { deleteTranscript, listTranscripts, saveTranscript } from "@/lib/db";
 import { uid } from "@/lib/format";
 import { runTranscription } from "@/lib/transcribe";
+import { looksPortuguese, translateSegments } from "@/lib/ai/translate";
 import { LOCAL_MODELS, detectWebGpu } from "@/lib/whisper";
 import type { CaptionsResult } from "@/lib/youtube-client";
 import { releaseWakeLock, acquireWakeLock } from "@/lib/wakelock";
@@ -27,7 +28,7 @@ import { ToastProvider, useToast } from "./ui/toast";
 type View = "input" | "job" | "result";
 type MobileTab = "transcript" | "assistant" | "history";
 
-const DEFAULTS: Settings = { engine: "local", model: "balanced", language: "auto" };
+const DEFAULTS: Settings = { engine: "local", model: "balanced", language: "auto", translate: true };
 
 function ls<T>(key: string, def: T): T {
   try {
@@ -177,6 +178,25 @@ function Shell() {
     setHistory((h) => [t, ...h.filter((x) => x.id !== t.id)]);
   };
 
+  /** Traduz para pt-BR quando a opção está ativa e o texto não está em português. */
+  const maybeTranslate = async (segs: Segment[], lang: string, ac: AbortController): Promise<Segment[]> => {
+    if (!settings.translate || !config?.aiConfigured) return segs;
+    if (lang.toLowerCase().startsWith("pt") || looksPortuguese(segs)) return segs;
+    setJob({ stage: "finalizing", label: "Traduzindo para português (0%)", percent: 0 });
+    try {
+      return await translateSegments(
+        segs,
+        ac.signal,
+        (d, t) => setJob({ stage: "finalizing", label: `Traduzindo para português (${Math.round((d / t) * 100)}%)`, percent: (d / t) * 100 }),
+        (n) => setJob((j) => ({ ...j, detail: n ?? undefined })),
+      );
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      toast(`Não foi possível traduzir; mantive o idioma original. ${e instanceof Error ? e.message : ""}`, "info");
+      return segs;
+    }
+  };
+
   const startJob = async (req: StartRequest) => {
     releaseMedia();
     const ac = new AbortController();
@@ -204,6 +224,7 @@ function Shell() {
         onNotice: (m) => toast(m, "info"),
         signal: ac.signal,
       });
+      const finalSegs = await maybeTranslate(r.segments, settings.language === "auto" ? "" : settings.language, ac);
       const t: Transcript = {
         id: uid(),
         title,
@@ -213,7 +234,7 @@ function Shell() {
         model: settings.engine === "local" ? LOCAL_MODELS.find((m) => m.id === settings.model)?.label : "whisper-large-v3-turbo",
         language: settings.language,
         source: req.source,
-        segments: r.segments,
+        segments: finalSegs,
       };
       await persist(t);
       setCurrent(t);
@@ -234,6 +255,22 @@ function Shell() {
 
   const onCaptions = async (r: CaptionsResult, url: string) => {
     releaseMedia();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    let segs = r.segments;
+    if (settings.translate && config?.aiConfigured && !r.selected.lang.toLowerCase().startsWith("pt") && !looksPortuguese(segs)) {
+      setView("job");
+      setJobMeta({ title: r.title, engine: "local" });
+      try {
+        segs = await maybeTranslate(segs, r.selected.lang, ac);
+      } catch {
+        abortRef.current = null;
+        setView("input");
+        toast("Tradução cancelada", "info");
+        return;
+      }
+    }
+    abortRef.current = null;
     const t: Transcript = {
       id: uid(),
       title: r.title,
@@ -242,7 +279,7 @@ function Shell() {
       engine: "youtube",
       language: r.selected.lang,
       source: { kind: "youtube", title: r.title, channel: r.channel, url, videoId: r.videoId, auto: r.selected.auto, lang: r.selected.lang },
-      segments: r.segments,
+      segments: segs,
     };
     await persist(t);
     setCurrent(t);

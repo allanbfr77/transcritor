@@ -3,12 +3,14 @@
 import { Cloud, Cpu } from "lucide-react";
 import { LANGUAGES, LOCAL_MODELS } from "@/lib/whisper";
 import type { AppConfig, EngineId, LocalModelId } from "@/lib/types";
-import { Segmented, Select } from "../ui/primitives";
+import { Segmented, Select, SwitchRow } from "../ui/primitives";
 
 export interface Settings {
   engine: EngineId;
   model: LocalModelId;
   language: string;
+  /** traduzir automaticamente para português do Brasil */
+  translate: boolean;
 }
 
 export const GROQ_TIP = (
@@ -92,6 +94,16 @@ export function OptionsCard({
             </Select>
           </label>
         )}
+      </div>
+      <div>
+        <SwitchRow
+          label="Traduzir para português do Brasil"
+          checked={settings.translate}
+          onChange={(translate) => onChange({ ...settings, translate })}
+        />
+        <p className="text-[12px] leading-5 text-fg-3">
+          Se o áudio estiver em outro idioma, o texto é traduzido pelo assistente ao final (o original fica disponível em Exibição). Exige a IA configurada.
+        </p>
       </div>
       {settings.engine === "local" && (
         <p className="text-[12px] leading-5 text-fg-3">
